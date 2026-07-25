@@ -20,7 +20,8 @@ const ADDONS = [
   'lib/jsm/postprocessing/RenderPass.js',
   'lib/jsm/postprocessing/UnrealBloomPass.js',
   'lib/jsm/postprocessing/EffectComposer.js',
-  'lib/jsm/postprocessing/OutputPass.js'
+  'lib/jsm/postprocessing/OutputPass.js',
+  'lib/jsm/utils/BufferGeometryUtils.js'
 ];
 
 /* Each addon becomes its own IIFE:
@@ -87,7 +88,7 @@ js += '/* ===== official post-processing addons ===== */\n';
 js += 'const NH = {};\n';
 for (const a of ADDONS) js += `\n/* --- ${a} --- */\n` + moduleToClassic(read(a)) + '\n';
 /* expose the addon classes the game imports by name */
-js += 'const { EffectComposer, RenderPass, UnrealBloomPass, ShaderPass, OutputPass } = NH;\n';
+js += 'const { EffectComposer, RenderPass, UnrealBloomPass, ShaderPass, OutputPass, mergeGeometries } = NH;\n';
 js += '\n/* ===== game ===== */\n' + gameToClassic(read('js/main.js')) + '\n';
 
 let html = read('index.html');

@@ -9,6 +9,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 (() => {
@@ -73,9 +74,15 @@ let Q = QUALITIES[qualityName];
 
 /* ---------------- renderer / scene / camera ---------------- */
 const renderer = new THREE.WebGLRenderer({ canvas: dom.canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+/* AgX (new in recent three.js) is a filmic transform with far better highlight
+   roll-off and hue retention than ACES — saturated reds/oranges stop turning
+   into flat white blobs, which is most of the "realistic colour" difference. */
+renderer.toneMapping = THREE.AgXToneMapping;
+renderer.toneMappingExposure = 1.1;       // AgX sits darker than ACES, so lift a little
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+/* Shadows only need recomputing when the sun actually moves, not every frame. */
+renderer.shadowMap.autoUpdate = false;
+renderer.shadowMap.needsUpdate = true;
 renderer.shadowMap.enabled = Q.shadow > 0;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -113,14 +120,16 @@ const SpeedBlurShader = {
     tDiffuse: { value: null },
     uStrength: { value: 0 },      // 0 = off
     uCenter: { value: new THREE.Vector2(0.5, 0.5) },
-    uVignette: { value: 0.28 }
+    uVignette: { value: 0.3 },
+    uSat: { value: 1.22 },        // AgX desaturates by design — put the punch back
+    uContrast: { value: 1.06 }
   },
   vertexShader: `
     varying vec2 vUv;
     void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader: `
     uniform sampler2D tDiffuse;
-    uniform float uStrength, uVignette;
+    uniform float uStrength, uVignette, uSat, uContrast;
     uniform vec2 uCenter;
     varying vec2 vUv;
     void main(){
@@ -137,11 +146,18 @@ const SpeedBlurShader = {
         }
         col = sum / 8.0;
       }
-      /* gentle vignette + slight contrast lift: cinematic finish */
+      /* --- filmic finish: vignette, saturation, contrast, subtle warm/cool split --- */
       float vig = 1.0 - uVignette * dist * dist * 2.2;
       col.rgb *= clamp(vig, 0.0, 1.0);
-      col.rgb = clamp((col.rgb - 0.5) * 1.035 + 0.5, 0.0, 1.0);
-      gl_FragColor = col;
+      /* saturation around Rec.709 luma */
+      float luma = dot(col.rgb, vec3(0.2126, 0.7152, 0.0722));
+      col.rgb = mix(vec3(luma), col.rgb, uSat);
+      /* S-curve contrast: richer blacks without crushing detail */
+      col.rgb = clamp((col.rgb - 0.5) * uContrast + 0.5, 0.0, 1.0);
+      /* cinematic split-tone: cool shadows, warm highlights */
+      col.rgb += vec3(-0.008, -0.002, 0.014) * (1.0 - luma);
+      col.rgb += vec3(0.014, 0.005, -0.010) * luma;
+      gl_FragColor = clamp(col, 0.0, 1.0);
     }`
 };
 const speedBlurPass = new ShaderPass(SpeedBlurShader);
@@ -156,15 +172,17 @@ const PLAYER_HL = 2.08, PLAYER_HW = 0.92;
 
 /* ---------------- day / night cycle ---------------- */
 const CYCLE = 210; // seconds for a full day
+/* Palette reworked for AgX: deeper, more saturated skies with warmer low-sun
+   light and cooler shadow fill — the natural warm/cool split real daylight has. */
 const RAW_STOPS = [
-  { t: 0.00, top: 0x2c4a86, hor: 0xff9a5c, sun: 0xffc98a, sunI: 1.7, hemi: 0x9db8ff, gnd: 0x8a6a4a, hemiI: 0.55, fog: 0xe8a06e, night: 0.12, exp: 1.04 },
-  { t: 0.16, top: 0x2f74d6, hor: 0xbfe0f5, sun: 0xfff2dc, sunI: 3.2, hemi: 0xbcd8ff, gnd: 0xa8845e, hemiI: 0.95, fog: 0xcfe3f2, night: 0.0,  exp: 1.0  },
-  { t: 0.34, top: 0x2a6fd8, hor: 0xd6ecfa, sun: 0xffffff, sunI: 3.6, hemi: 0xcfe4ff, gnd: 0xb08a60, hemiI: 1.05, fog: 0xdceefb, night: 0.0,  exp: 1.0  },
-  { t: 0.50, top: 0x51418f, hor: 0xff8a4a, sun: 0xffb066, sunI: 2.4, hemi: 0xb3a0d8, gnd: 0x7a5a40, hemiI: 0.70, fog: 0xf0a26a, night: 0.06, exp: 1.05 },
-  { t: 0.60, top: 0x1b2352, hor: 0xd75a58, sun: 0xff8a55, sunI: 1.1, hemi: 0x5a6aa8, gnd: 0x4a3a35, hemiI: 0.45, fog: 0x8a5a66, night: 0.5,  exp: 1.0  },
-  { t: 0.72, top: 0x05081a, hor: 0x141d3d, sun: 0xbfd4ff, sunI: 0.5, hemi: 0x2a3a6e, gnd: 0x131320, hemiI: 0.32, fog: 0x10182e, night: 1.0,  exp: 0.92 },
-  { t: 0.88, top: 0x070c22, hor: 0x1a2348, sun: 0xbfd4ff, sunI: 0.5, hemi: 0x2e3e72, gnd: 0x161626, hemiI: 0.34, fog: 0x141c36, night: 1.0,  exp: 0.92 },
-  { t: 0.97, top: 0x1d2f60, hor: 0x9a5e6e, sun: 0xffbf90, sunI: 1.0, hemi: 0x6a7ab0, gnd: 0x4a3a35, hemiI: 0.45, fog: 0x7a5468, night: 0.5,  exp: 0.98 }
+  { t: 0.00, top: 0x1d3a7a, hor: 0xff8a42, sun: 0xffb066, sunI: 2.1, hemi: 0x7fa4ff, gnd: 0x8a6038, hemiI: 0.6,  fog: 0xe08a4e, night: 0.12, exp: 1.04 },
+  { t: 0.16, top: 0x1f68d8, hor: 0xa8d6f2, sun: 0xfff0d0, sunI: 3.6, hemi: 0xa8ccff, gnd: 0xa87c50, hemiI: 1.0,  fog: 0xbcdcf2, night: 0.0,  exp: 1.0  },
+  { t: 0.34, top: 0x1a63e0, hor: 0xc8e6fb, sun: 0xfff8ee, sunI: 4.1, hemi: 0xbcdcff, gnd: 0xb08654, hemiI: 1.1,  fog: 0xd2e8fb, night: 0.0,  exp: 0.98 },
+  { t: 0.50, top: 0x4a3596, hor: 0xff7a30, sun: 0xff9a48, sunI: 2.7, hemi: 0xb894e0, gnd: 0x7a5236, hemiI: 0.72, fog: 0xf08a44, night: 0.06, exp: 1.05 },
+  { t: 0.60, top: 0x141a4e, hor: 0xd8404e, sun: 0xff6e3c, sunI: 1.2, hemi: 0x4a5ca8, gnd: 0x42302c, hemiI: 0.46, fog: 0x7e4058, night: 0.5,  exp: 1.0  },
+  { t: 0.72, top: 0x03050f, hor: 0x0e1636, sun: 0xa8c4ff, sunI: 0.42, hemi: 0x1e2e60, gnd: 0x0e0e18, hemiI: 0.3, fog: 0x0a1024, night: 1.0,  exp: 0.9  },
+  { t: 0.88, top: 0x04081c, hor: 0x121c42, sun: 0xa8c4ff, sunI: 0.42, hemi: 0x22326a, gnd: 0x10101e, hemiI: 0.32, fog: 0x0e1630, night: 1.0,  exp: 0.9  },
+  { t: 0.97, top: 0x15265a, hor: 0x9c4a62, sun: 0xffab72, sunI: 1.1, hemi: 0x5a6cb0, gnd: 0x42302c, hemiI: 0.46, fog: 0x6e4460, night: 0.5,  exp: 0.98 }
 ];
 const STOPS = RAW_STOPS.map(s => ({
   t: s.t, sunI: s.sunI, hemiI: s.hemiI, night: s.night, exp: s.exp,
@@ -360,23 +378,47 @@ const winTex = makeTex(64, 128, (g, w, h) => {
 
 /* ---------------- environment reflections ---------------- */
 (function makeEnv() {
+  /* A richer probe: banded sky (zenith → horizon haze), warm desert ground, a
+     bright sun disc and a soft horizon glow band. More tonal steps here means
+     the clearcoat picks up believable gradients as the car rolls, instead of
+     one flat wash of colour. */
   const envScene = new THREE.Scene();
-  const geo = new THREE.SphereGeometry(10, 24, 12);
+  const geo = new THREE.SphereGeometry(10, 32, 20);
   const pos = geo.attributes.position;
   const cols = [];
-  const cT = new THREE.Color(0x5f8fd8), cM = new THREE.Color(0xffd9b0), cB = new THREE.Color(0x5a4028);
+  const zenith = new THREE.Color(0x2a5fc8);
+  const skyMid = new THREE.Color(0x86b6ee);
+  const haze   = new THREE.Color(0xffe0b8);
+  const gndNear = new THREE.Color(0xb08a58);
+  const gndFar  = new THREE.Color(0x4a3520);
   const tmp = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const y = pos.getY(i) / 10;
-    if (y > 0) tmp.copy(cM).lerp(cT, Math.pow(y, 0.7)); else tmp.copy(cM).lerp(cB, Math.pow(-y, 0.6));
+    if (y > 0.28) {
+      tmp.copy(skyMid).lerp(zenith, Math.pow((y - 0.28) / 0.72, 0.8));
+    } else if (y > 0) {
+      tmp.copy(haze).lerp(skyMid, y / 0.28);          // horizon haze band
+    } else {
+      tmp.copy(gndNear).lerp(gndFar, Math.pow(-y, 0.5));
+    }
     cols.push(tmp.r, tmp.g, tmp.b);
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
   envScene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
-  const ball = new THREE.Mesh(new THREE.SphereGeometry(1.5, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  ball.position.set(4, 5.5, -5); envScene.add(ball);
+  /* sun disc — gives paint and glass a crisp moving highlight */
+  const sunBall = new THREE.Mesh(
+    new THREE.SphereGeometry(1.1, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xfff4e0 })
+  );
+  sunBall.position.set(4.5, 5.5, -5); envScene.add(sunBall);
+  /* soft bounce card low and opposite, so the far side of the body isn't dead */
+  const card = new THREE.Mesh(
+    new THREE.PlaneGeometry(14, 6),
+    new THREE.MeshBasicMaterial({ color: 0xffc890, side: THREE.DoubleSide })
+  );
+  card.position.set(-5, 1.2, 4); card.lookAt(0, 1, 0); envScene.add(card);
   const pm = new THREE.PMREMGenerator(renderer);
-  scene.environment = pm.fromScene(envScene, 0.08).texture;
+  scene.environment = pm.fromScene(envScene, 0.04).texture;
   pm.dispose();
 })();
 
@@ -418,22 +460,37 @@ const railMat = new THREE.MeshStandardMaterial({ map: railTex, roughness: 0.5, m
 
 /* mountains + skyline (distant silhouettes) */
 const mountMat = new THREE.MeshStandardMaterial({ color: 0x4a4066, roughness: 1, flatShading: true, envMapIntensity: 0 });
-for (let i = 0; i < 9; i++) {
-  const r = rand(60, 150), h = rand(45, 115);
-  const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 5), mountMat);
-  const side = i % 2 === 0 ? 1 : -1;
-  m.position.set(side * rand(55, 330) + rand(-20, 20), h / 2 - 6, -rand(400, 520));
-  m.rotation.y = rand(Math.PI * 2);
-  world.add(freeze(m));
+/* Mountains and skyline never move relative to each other, so bake each group
+   into ONE geometry: 21 static draw calls collapse to 2. */
+{
+  const parts = [];
+  for (let i = 0; i < 11; i++) {
+    const r = rand(60, 150), h = rand(45, 115);
+    const g = new THREE.ConeGeometry(r, h, 5);
+    const side = i % 2 === 0 ? 1 : -1;
+    g.rotateY(rand(Math.PI * 2));
+    g.translate(side * rand(55, 330) + rand(-20, 20), h / 2 - 6, -rand(400, 520));
+    parts.push(g);
+  }
+  const merged = mergeGeometries(parts, false);
+  parts.forEach(g => g.dispose());
+  world.add(freeze(new THREE.Mesh(merged, mountMat)));
 }
 const bldMat = new THREE.MeshStandardMaterial({
   color: 0x0d1524, roughness: 0.9, emissive: 0xffd9a0, emissiveMap: winTex, emissiveIntensity: 0
 });
-for (let i = 0; i < 12; i++) {
-  const w = rand(10, 24), h = rand(22, 72), d = rand(10, 20);
-  const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bldMat);
-  b.position.set(-rand(46, 210), h / 2 - 2, -rand(380, 470));
-  world.add(freeze(b));
+{
+  const parts = [];
+  for (let i = 0; i < 16; i++) {
+    const w = rand(10, 24), h = rand(22, 78), d = rand(10, 20);
+    const g = new THREE.BoxGeometry(w, h, d);
+    const side = i < 11 ? -1 : 1;   // cluster mostly left, a few right for depth
+    g.translate(side * rand(46, 230), h / 2 - 2, -rand(370, 480));
+    parts.push(g);
+  }
+  const merged = mergeGeometries(parts, false);
+  parts.forEach(g => g.dispose());
+  world.add(freeze(new THREE.Mesh(merged, bldMat)));
 }
 
 /* clouds */
@@ -502,12 +559,16 @@ const lamps = [];
 for (let i = 0; i < LAMP_N; i++) {
   const g = new THREE.Group();
   const side = i % 2 === 0 ? 1 : -1;
-  const pole = new THREE.Mesh(poleGeo, lampPoleMat); pole.position.set(side * 8.1, 2.8, 0);
-  const arm = new THREE.Mesh(armGeo, lampPoleMat); arm.position.set(side * 7.2, 5.5, 0);
+  /* pole + arm share one material — bake them into a single mesh */
+  const pg = poleGeo.clone(); pg.translate(side * 8.1, 2.8, 0);
+  const ag = armGeo.clone(); ag.translate(side * 7.2, 5.5, 0);
+  const structure = mergeGeometries([pg, ag], false);
+  pg.dispose(); ag.dispose();
+  const pole = new THREE.Mesh(structure, lampPoleMat);
   const head = new THREE.Mesh(headGeo, lampHeadMat); head.position.set(side * 6.35, 5.42, 0);
   const pool = new THREE.Mesh(poolGeo, lampPoolMat); pool.rotation.x = -Math.PI / 2; pool.position.set(side * 6.3, 0.04, 0);
   const lg = new THREE.Sprite(lampGlowMat); lg.scale.set(4.2, 4.2, 1); lg.position.set(side * 6.35, 5.45, 0);
-  g.add(pole, arm, head, pool, lg);
+  g.add(pole, head, pool, lg);
   g.position.z = 20 - i * LAMP_GAP;
   lamps.push(g); world.add(g);
 }
@@ -568,24 +629,31 @@ const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6a4a30, roughness: 1 
 const leafMat = new THREE.MeshStandardMaterial({ color: 0x2e7a44, roughness: 0.9, side: THREE.DoubleSide });
 const trunkGeo = new THREE.CylinderGeometry(0.13, 0.24, 1, 6);
 const leafGeo = new THREE.PlaneGeometry(0.72, 2.7);
+/* Each palm was a Group of 8 meshes (12 palms = 96 draw calls). Bake trunk +
+   fronds into ONE geometry per palm: 96 → 12. Materials differ, so merge with
+   groups and hand the mesh an array material. */
 const palms = [];
 for (let i = 0; i < 12; i++) {
-  const g = new THREE.Group();
   const hgt = rand(3.4, 5.4);
-  const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-  trunk.scale.y = hgt; trunk.position.y = hgt / 2;
-  g.add(trunk);
+  const tg = trunkGeo.clone();
+  tg.scale(1, hgt, 1);
+  tg.translate(0, hgt / 2, 0);
+  const leafParts = [];
   const nL = 7;
   for (let k = 0; k < nL; k++) {
-    const leaf = new THREE.Mesh(leafGeo, leafMat);
-    leaf.position.y = hgt + 0.1;
-    leaf.rotation.y = (k / nL) * Math.PI * 2 + rand(0.3);
-    leaf.rotation.x = -0.95 + rand(-0.15, 0.15);
-    leaf.position.x = Math.sin(leaf.rotation.y) * 0.9;
-    leaf.position.z = Math.cos(leaf.rotation.y) * 0.9;
-    g.add(leaf);
+    const lg = leafGeo.clone();
+    const ry = (k / nL) * Math.PI * 2 + rand(0.3);
+    lg.rotateX(-0.95 + rand(-0.15, 0.15));
+    lg.rotateY(ry);
+    lg.translate(Math.sin(ry) * 0.9, hgt + 0.1, Math.cos(ry) * 0.9);
+    leafParts.push(lg);
   }
-  resetSideProp(g, true, 11, 42); palms.push(g); world.add(g);
+  const leavesMerged = mergeGeometries(leafParts, false);
+  leafParts.forEach(g => g.dispose());
+  const merged = mergeGeometries([tg, leavesMerged], true);   // groups → 2 materials
+  tg.dispose(); leavesMerged.dispose();
+  const m = new THREE.Mesh(merged, [trunkMat, leafMat]);
+  resetSideProp(m, true, 11, 42); palms.push(m); world.add(m);
 }
 const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a7a68, roughness: 1, flatShading: true });
 const rocks = [];
@@ -605,7 +673,13 @@ const wheelGeo = new THREE.CylinderGeometry(1, 1, 1, 18);
 wheelGeo.rotateZ(Math.PI / 2);
 const wheelMat = new THREE.MeshStandardMaterial({ color: 0x15171c, roughness: 0.85 });
 const hubMat = new THREE.MeshStandardMaterial({ color: 0xb8bec8, roughness: 0.3, metalness: 0.9 });
-const glassMat = new THREE.MeshStandardMaterial({ color: 0x0d1620, roughness: 0.08, metalness: 0.9, envMapIntensity: 1.4 });
+/* Physical glass: dark tint with a real specular sheet, so windows catch the sky
+   and the sun instead of looking like flat black panels. */
+const glassMat = new THREE.MeshPhysicalMaterial({
+  color: 0x070b12, roughness: 0.06, metalness: 0.25,
+  clearcoat: 1, clearcoatRoughness: 0.03,
+  reflectivity: 0.5, envMapIntensity: 0.72    // higher turns windows into sky mirrors
+});
 const tailMat = new THREE.MeshStandardMaterial({ color: 0x550808, emissive: 0xff2418, emissiveIntensity: 0.8 });
 const headMatT = new THREE.MeshStandardMaterial({ color: 0xcccccc, emissive: 0xffffff, emissiveIntensity: 0.3 });
 
@@ -715,9 +789,14 @@ const player = {
   const g = player.g;
   const car = player.body;      // suspended chassis — pitches/rolls/bounces over the wheels
   g.add(car);
+  /* Real automotive paint: a metallic base flake under a smooth clearcoat, plus
+     iridescent sheen at grazing angles. This is what makes the body read as
+     lacquered metal rather than coloured plastic. */
   const paint = new THREE.MeshPhysicalMaterial({
-    color: 0xd81430, roughness: 0.3, metalness: 0.72,
-    clearcoat: 1, clearcoatRoughness: 0.1, envMapIntensity: 1.2
+    color: 0xc8102e, roughness: 0.38, metalness: 0.55,
+    clearcoat: 1, clearcoatRoughness: 0.04,
+    sheen: 0.5, sheenRoughness: 0.35, sheenColor: 0xff8090,
+    envMapIntensity: 1.5
   });
   const darkTrim = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.5, metalness: 0.4 });
   const carbonMat = new THREE.MeshStandardMaterial({ color: 0x1b1e26, roughness: 0.35, metalness: 0.7 });
@@ -1369,7 +1448,7 @@ let combo = 0, comboT = 0;
 let nextTrafficDist = 40, nextCoinDist = 60, nextPickupDist = 300;
 let crashT = 0, timeScale = 1;
 let overdrive = false, overdriveT = 0, nextMilestone = 1000, topSpeed = 0;
-let fpsEMA = 60, dynScale = 1, lowFpsT = 0, highFpsT = 0, now0 = 0;
+let fpsEMA = 60, dynScale = 1, lowFpsT = 0, highFpsT = 0, now0 = 0, shadowTick = 0;
 let shakeAmp = 0, scrapeCd = 0, skidCd = 0, sideSwipeCd = 0;
 let driftT = 0, driftScore = 0, driftBank = 0;
 let camW = 0;                 // 0 = menu orbit, 1 = chase
@@ -1639,7 +1718,11 @@ function updateAtmosphere(rdt) {
   sun.position.set(tx + lightDirV.x * 100, lightDirV.y * 100, -16 + lightDirV.z * 100);
   scene.fog.color.copy(SKY.fog);
   scene.fog.far = Q.fogFar * (1 - night * 0.16);
-  renderer.toneMappingExposure = SKY.exp;
+  renderer.toneMappingExposure = SKY.exp * 1.1;
+  /* refresh the shadow map a few times a second instead of every frame:
+     the sun crawls, so this is visually identical and much cheaper */
+  shadowTick += rdt;
+  if (shadowTick > 0.1) { shadowTick = 0; renderer.shadowMap.needsUpdate = true; }
   /* night-driven glow */
   lampHeadMat.emissiveIntensity = night * 1.5;
   lampPoolMat.opacity = night * 0.5;
@@ -2199,24 +2282,24 @@ function loop(now) {
   }
 
   try {
-    if (useBloom) {
-      bloomPass.strength = 0.26 + SKY.night * 0.16 + nitroK * 0.18;
-      /* blur ramps in above ~170 km/h and surges on nitro / during a slide */
-      const kmh = playSpeed * 3.6;
-      const blur = clamp((kmh - 170) / 260, 0, 1) * 0.016
-                 + nitroK * 0.022
-                 + player.slip * 0.01;
-      speedBlurPass.uniforms.uStrength.value = state === 'menu' ? 0 : blur;
-      /* pull the streak centre toward where the car is heading */
-      speedBlurPass.uniforms.uCenter.value.set(0.5 - player.x * 0.012, 0.52);
-      composer.render();
-    } else {
-      renderer.render(scene, camera);
-    }
+    /* blur ramps in above ~170 km/h and surges on nitro / during a slide */
+    const kmh = playSpeed * 3.6;
+    const blur = clamp((kmh - 170) / 260, 0, 1) * 0.016
+               + nitroK * 0.022
+               + player.slip * 0.01;
+    speedBlurPass.uniforms.uStrength.value = state === 'menu' ? 0 : blur;
+    /* pull the streak centre toward where the car is heading */
+    speedBlurPass.uniforms.uCenter.value.set(0.5 - player.x * 0.012, 0.52);
+    bloomPass.enabled = useBloom;
+    if (useBloom) bloomPass.strength = 0.26 + SKY.night * 0.16 + nitroK * 0.18;
+    /* Always go through the composer: the grade/vignette pass is cheap and we
+       want consistent colour on every quality level, not just when bloom is on. */
+    composer.render();
   } catch (err) {
-    /* composer/WebGL hiccup → drop post-processing rather than stop drawing */
-    if (useBloom) { useBloom = false; console.warn('[nitro] bloom disabled after render error'); }
-    else throw err;
+    /* composer/WebGL hiccup → fall back to a plain render rather than stop drawing */
+    console.warn('[nitro] composer failed, falling back to direct render', err);
+    useBloom = false;
+    try { renderer.render(scene, camera); } catch (_) {}
   }
 
   if (!portalReady) {
