@@ -25,7 +25,10 @@ A slick, fast, fully 3D endless traffic racer built as a pure **HTML5 web game**
 - **Installable (PWA)** — web-app manifest with fullscreen landscape display, so it can be added to a phone's home screen
 - **Genuine vehicle physics** — force-based longitudinal model (engine torque curve vs. quadratic aero drag + rolling resistance + brake force), a **6-speed gearbox** with audible shifts and RPM-driven engine note, and a **lateral tyre model with slip**: overdrive the grip and the car drifts, smokes and howls, with body yaw following the slide
 - **Ghost replay** — your best run is recorded and replayed as a translucent car you race side-by-side (toggleable in the menu)
-- **Real 3D graphics** — dynamic sun with soft shadows, ACES filmic tone mapping, PBR car paint with clearcoat, environment reflections, distance fog
+- **AgX tone mapping + custom filmic grade** — AgX gives far better highlight roll-off and hue retention than ACES (saturated reds stop blowing out to white), then a single grade pass adds saturation, an S-curve contrast, warm-highlight/cool-shadow split-toning and a vignette. This is the bulk of the "realistic colour" difference.
+- **Physically-based materials** — car paint is metallic flake under a smooth clearcoat with sheen; glass is a tinted physical material that catches the sky; the asphalt has a roughness map so it varies under moving light
+- **Rich environment probe** — banded sky (zenith → horizon haze), warm desert bounce, sun disc and a fill card, so reflections roll believably across the bodywork instead of showing one flat wash
+- **Real 3D graphics** — dynamic sun with soft shadows, PBR car paint with clearcoat, environment reflections, distance fog
 - **Sculpted car bodies** — every vehicle (player + 4 traffic types) is an extruded side-profile with beveled, rounded edges: real hoods, raked windshields, kamm tails — not stacked boxes; plus soft contact shadows that ground every car
 - **Suspension physics** — the chassis pitches under braking/nitro (weight transfer), rolls into steering, and hums with speed-dependent road bumps over planted, spinning, front-steering wheels; lateral inertia makes the car feel heavy at 300 km/h
 - **Overhead sign gantries** — "NITRO CITY 24" style highway signs sweep overhead as speed landmarks (self-lit at night)
@@ -134,6 +137,8 @@ Add `#debug` to the URL to surface the on-screen error reporter while testing.
 
 ## 🧠 Tech notes
 
+- **Merged static geometry** — mountains, the city skyline, every palm tree and the lamp structures are baked into single buffers with `BufferGeometryUtils.mergeGeometries`, collapsing well over a hundred draw calls into a handful
+- **Throttled shadow map** — `shadowMap.autoUpdate = false` with a manual refresh ~10×/second; the sun crawls, so re-rendering the depth pass every frame was pure waste
 - Single scrolling-texture road/ground/rails (no geometry recycling for the road = fewer draw calls); pooled + recycled traffic, lamps, scenery, coins (InstancedMesh), particles (InstancedMesh), speed lines
 - No allocations in the frame loop; ~190 draw calls typical; designed to hold 60 fps on mid-range phones at MED
 - The sky is a custom shader dome (gradient + sun disc + twinkling stars) that participates in the same tone-mapping pipeline as the scene, so fog always blends seamlessly
