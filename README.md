@@ -2,6 +2,13 @@
 
 **Outrun the traffic. Own the night.**
 
+[![Play](https://img.shields.io/badge/▶%20PLAY-live%20demo-4be1ff?style=for-the-badge)](https://bekhruztursunboev.github.io/NitroHorizon/)
+[![three.js](https://img.shields.io/badge/three.js-r185-black?style=for-the-badge&logo=three.js)](https://threejs.org)
+[![License](https://img.shields.io/badge/license-MIT-ffc850?style=for-the-badge)](LICENSE)
+
+> **Enable the live demo:** repo **Settings → Pages → Source: Deploy from a branch → `main` / `root` → Save.**
+> The game is a static site with no build step, so Pages needs no extra configuration.
+
 A slick, fast, fully 3D endless traffic racer built as a pure **HTML5 web game** with [Three.js](https://threejs.org). Weave through highway traffic at 300 km/h, chain near-miss combos, grab coins, slam the nitro — and watch the world cycle from golden dawn through blazing noon into a neon-soaked night with working headlights, street lamps and a glowing city skyline.
 
 > **Zero external assets. Zero build step. Zero dependencies to install.**
@@ -12,7 +19,10 @@ A slick, fast, fully 3D endless traffic racer built as a pure **HTML5 web game**
 ## ✨ Features
 
 - **Three.js r185 (latest) as native ES modules** with an import map — no deprecated global build, no bundler, no build step
-- **Real post-processing** — `EffectComposer` + `UnrealBloomPass` + `OutputPass`: true HDR bloom on headlights, taillights, street lamps and nitro flames, dynamically scaled by time of day and boost
+- **Real post-processing** — `EffectComposer` + `UnrealBloomPass` + a custom radial **speed-blur / vignette / grade** pass: true HDR bloom on headlights, taillights, street lamps and nitro flames, plus the image streaking outward from the vanishing point as speed rises (tapered to keep the car sharp), all dynamically scaled by time of day, boost and slip
+- **Fixed-timestep simulation (120 Hz)** — physics are decoupled from the render rate with an accumulator, so handling is identical whether you're at 30, 60 or 144 fps
+- **Arcade attract-mode menu** — the game world is the backdrop, framed by cabinet-style corner brackets, a cinematic dolly camera on the car, and a scrolling tip ticker
+- **Installable (PWA)** — web-app manifest with fullscreen landscape display, so it can be added to a phone's home screen
 - **Genuine vehicle physics** — force-based longitudinal model (engine torque curve vs. quadratic aero drag + rolling resistance + brake force), a **6-speed gearbox** with audible shifts and RPM-driven engine note, and a **lateral tyre model with slip**: overdrive the grip and the car drifts, smokes and howls, with body yaw following the slide
 - **Ghost replay** — your best run is recorded and replayed as a translucent car you race side-by-side (toggleable in the menu)
 - **Real 3D graphics** — dynamic sun with soft shadows, ACES filmic tone mapping, PBR car paint with clearcoat, environment reflections, distance fog
