@@ -23,7 +23,7 @@ A slick, fast, fully 3D endless traffic racer built as a pure **HTML5 web game**
 - **Fixed-timestep simulation (120 Hz)** — physics are decoupled from the render rate with an accumulator, so handling is identical whether you're at 30, 60 or 144 fps
 - **Arcade attract-mode menu** — the game world is the backdrop, framed by cabinet-style corner brackets, a cinematic dolly camera on the car, and a scrolling tip ticker
 - **Installable (PWA)** — web-app manifest with fullscreen landscape display, so it can be added to a phone's home screen
-- **Genuine vehicle physics** — force-based longitudinal model (engine torque curve vs. quadratic aero drag + rolling resistance + brake force), a **6-speed gearbox** with audible shifts and RPM-driven engine note, and a **lateral tyre model with slip**: overdrive the grip and the car drifts, smokes and howls, with body yaw following the slide
+- **Genuine vehicle physics** — a **tyre friction circle** gives the tyres one grip budget shared between cornering and accelerating/braking, so wheelspin, brake-induced understeer and power-on understeer all emerge naturally rather than being scripted. On top of that: a per-gear **torque curve** with real ratios, shift hysteresis and a torque cut on upshifts; **aero downforce** that buys grip with speed; **weight transfer** that feeds both tyre grip and the visual pitch; and **yaw inertia** so the car rotates into a slide and settles instead of snapping
 - **Ghost replay** — your best run is recorded and replayed as a translucent car you race side-by-side (toggleable in the menu)
 - **AgX tone mapping + custom filmic grade** — AgX gives far better highlight roll-off and hue retention than ACES (saturated reds stop blowing out to white), then a single grade pass adds saturation, an S-curve contrast, warm-highlight/cool-shadow split-toning and a vignette. This is the bulk of the "realistic colour" difference.
 - **Physically-based materials** — car paint is metallic flake under a smooth clearcoat with sheen; glass is a tinted physical material that catches the sky; the asphalt has a roughness map so it varies under moving light
@@ -132,6 +132,8 @@ The game is built to survive the messy realities of running in a browser tab:
 - **Audio hygiene** — the music sequencer re-anchors after a tab suspend instead of dumping a burst of stacked notes, and leaving the pause screen always restores audio.
 - **State hygiene** — starting a run or returning to the menu clears traffic, coins, particles, skid marks, popups and every transient flag, so nothing bleeds between runs.
 - Corrupt saved data (high score, ghost replay) is validated and ignored rather than crashing the game.
+- **Barrier contact** kills only the into-wall velocity component and nudges the car back off the rail, so you never get stuck grinding along it with unresponsive steering.
+- Vehicle state (yaw, load, lateral acceleration) is eased and kept in sync across menu, driving and crash states, so nothing jolts when the game changes mode.
 
 Add `#debug` to the URL to surface the on-screen error reporter while testing.
 

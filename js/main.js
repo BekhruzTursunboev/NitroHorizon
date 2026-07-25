@@ -323,6 +323,19 @@ const roadTex = makeTex(512, 1024, (g, w, h) => {
   }
   const pxm = w / 17; // px per metre
   const cx = w / 2;
+  /* tarmac patch repairs + tar seams: real roads are a quilt, not one slab */
+  for (let i = 0; i < 7; i++) {
+    g.fillStyle = 'rgba(0,0,0,0.09)';
+    const pw = 60 + Math.random() * 180, ph = 70 + Math.random() * 220;
+    g.fillRect(Math.random() * (w - pw), Math.random() * (h - ph), pw, ph);
+  }
+  g.strokeStyle = 'rgba(18,18,20,0.5)'; g.lineWidth = 3;
+  for (let i = 0; i < 9; i++) {
+    const y = Math.random() * h;
+    g.beginPath();
+    for (let x = 0; x <= w; x += 24) g.lineTo(x, y + Math.sin(x * 0.03 + i) * 3);
+    g.stroke();
+  }
   g.fillStyle = 'rgba(0,0,0,0.10)'; // wheel-polish bands
   LANES.forEach(lx => {
     g.fillRect(cx + (lx - 0.62) * pxm - 8, 0, 16, h);
@@ -332,12 +345,16 @@ const roadTex = makeTex(512, 1024, (g, w, h) => {
   g.fillStyle = 'rgba(245,240,225,0.92)';
   g.fillRect(cx - 6.8 * pxm - 3, 0, 6, h);
   g.fillRect(cx + 6.8 * pxm - 3, 0, 6, h);
-  // dashed separators (dash 2.6 m, gap 3.4 m)
+  // dashed separators (dash 2.6 m, gap 3.4 m) with worn, uneven paint
   const dash = 2.6 / 20 * h, gap = 3.4 / 20 * h;
   [-3.4, 0, 3.4].forEach(lx => {
     for (let y = 0; y < h; y += dash + gap) {
-      g.fillStyle = 'rgba(240,235,215,0.85)';
+      const wear = 0.62 + Math.random() * 0.3;
+      g.fillStyle = `rgba(240,235,215,${wear})`;
       g.fillRect(cx + lx * pxm - 3, y, 6, dash);
+      /* scuffed edges where tyres have chewed the paint */
+      g.fillStyle = 'rgba(60,58,54,0.25)';
+      g.fillRect(cx + lx * pxm - 3, y, 6, 2 + Math.random() * 4);
     }
   });
 }, 1, 50);
@@ -843,7 +860,7 @@ const TRAFFIC_SPECS = [
 const player = {
   g: new THREE.Group(), body: new THREE.Group(), wheels: [], x: 0, steer: 0,
   vx: 0, prevVx: 0, slip: 0, gear: 0, rpm: 0,
-  load: 0, shiftKick: 0, yaw: 0, yawVel: 0,
+  load: 0, shiftKick: 0, yaw: 0, yawVel: 0, latAccel: 0,
   roll: 0, pitch: 0, susPhase: 0, prevSpeed: 25
 };
 (function buildPlayer() {
@@ -1586,7 +1603,7 @@ function repairPlayer() {
   player.body.rotation.set(0, 0, 0);
   player.body.position.set(0, 0, 0);
   player.vx = 0; player.prevVx = 0; player.slip = 0; player.gear = 0; player.rpm = 0;
-  player.load = 0; player.shiftKick = 0; player.yaw = 0; player.yawVel = 0;
+  player.load = 0; player.shiftKick = 0; player.yaw = 0; player.yawVel = 0; player.latAccel = 0;
   player.pitch = 0; player.roll = 0; player.prevSpeed = playSpeed;
   player.vy = 0; player.rvx = 0; player.rvy = 0; player.rvz = 0;
 }
@@ -1942,6 +1959,9 @@ function updateTraffic(dt) {
         const dir = Math.sign(player.x - c.xPos) || 1;
         player.vx += dir * 5.4;
         player.x += dir * 0.22;
+        /* kick the yaw model too, so the impact visibly twists the car */
+        player.yawVel += dir * 1.6;
+        player.load = clamp(player.load - 0.5, -1, 1);   // nose-down jolt
         c.xPos -= dir * 0.5;
         c.speed = Math.max(6, c.speed - 3);
         playSpeed = Math.max(10, playSpeed - 7);
@@ -2208,13 +2228,18 @@ function updatePlayer(dt, rdt) {
     }
     player.x += player.vx * dt;
     if (Math.abs(player.x) > EDGE_X) {
+      const side = Math.sign(player.x);
       player.x = clamp(player.x, -EDGE_X, EDGE_X);
-      player.vx *= 0.5;
-      if (scrapeCd <= 0 && Math.abs(player.steer) > 0.25) {
-        scrapeCd = 0.25;
-        spawnBurst(player.x + Math.sign(player.x) * 1.05, 0.5, 0.5, 6, SPARK_COLS, 2, 7, 2);
+      /* Kill only the INTO-wall component and nudge back off the barrier. The old
+         `vx *= 0.5` left the car pressing into the rail, so it stuck there
+         grinding and steering out felt unresponsive. */
+      if (Math.sign(player.vx) === side) player.vx = -side * Math.abs(player.vx) * 0.25;
+      playSpeed = Math.max(8, playSpeed - 14 * dt);   // scraping costs speed
+      if (scrapeCd <= 0) {
+        scrapeCd = 0.12;
+        spawnBurst(player.x + side * 1.05, 0.45, 0.5, 5, SPARK_COLS, 2, 8, 2);
         audio.scrape();
-        shakeAmp = Math.max(shakeAmp, 0.12);
+        shakeAmp = Math.max(shakeAmp, 0.16);
       }
     }
     if (scrapeCd > 0) scrapeCd -= dt;
@@ -2227,10 +2252,12 @@ function updatePlayer(dt, rdt) {
        braking and the tail squats on power — the same value the tyres use. */
     const pitchT = -player.load * 0.055 + nitroK * 0.022;
     player.pitch = damp(player.pitch, pitchT, 7, dt);
-    /* body roll follows real lateral acceleration, not just stick input */
-    const latAccel = (player.vx - player.prevVx) / Math.max(dt, 0.0001);
+    /* Body roll from real lateral acceleration. The raw per-frame derivative was
+       spiky at a 120 Hz fixed step, so smooth it before it drives the mesh. */
+    const latAccelRaw = (player.vx - player.prevVx) / Math.max(dt, 0.0001);
     player.prevVx = player.vx;
-    player.roll = damp(player.roll, clamp(-player.vx * 0.011 - latAccel * 0.0016, -0.2, 0.2), 7, dt);
+    player.latAccel = damp(player.latAccel, clamp(latAccelRaw, -60, 60), 12, dt);
+    player.roll = damp(player.roll, clamp(-player.vx * 0.011 - player.latAccel * 0.0016, -0.2, 0.2), 7, dt);
     player.susPhase += dt * (7 + playSpeed * 0.4);
     const bump = Math.sin(player.susPhase) * 0.55 + Math.sin(player.susPhase * 2.63 + 1.7) * 0.45;
     player.body.position.y = bump * clamp(playSpeed - 14, 0, 70) * 0.00075;
@@ -2266,8 +2293,10 @@ function updatePlayer(dt, rdt) {
     player.trailMat.opacity = 0;
     player.trails.forEach(t => t.visible = false);
     player.tailMat.emissiveIntensity = 1.4;
+    /* keep player.yaw in sync with the tumble so nothing snaps if state changes */
+    player.yaw += player.rvy * dt;
     player.g.rotation.x += player.rvx * dt;
-    player.g.rotation.y += player.rvy * dt;
+    player.g.rotation.y = player.yaw;
     player.g.rotation.z += player.rvz * dt;
     player.g.position.y += player.vy * dt;
     player.vy -= 20 * dt;
@@ -2292,7 +2321,13 @@ function updatePlayer(dt, rdt) {
     player.body.position.y = Math.sin(performance.now() * 0.002) * 0.006;
     player.x = damp(player.x, Math.sin(performance.now() * 0.00022) * 3.0, 2, dt);
     player.g.position.x = player.x;
-    player.g.rotation.z = 0; player.g.rotation.y = 0;
+    /* Ease the yaw STATE back to zero rather than only zeroing the mesh rotation:
+       otherwise player.yaw keeps its stale value from the last run and the car
+       visibly jolts sideways the instant you press START. */
+    player.yaw = damp(player.yaw, 0, 4, dt);
+    player.yawVel = 0;
+    player.g.rotation.y = player.yaw;
+    player.g.rotation.z = 0;
     const wRot = playSpeed / 0.36 * dt;
     player.wheels.forEach(w => { w.rotation.x += wRot; });
   } else { /* over */
