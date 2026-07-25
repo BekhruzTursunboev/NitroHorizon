@@ -843,6 +843,7 @@ const TRAFFIC_SPECS = [
 const player = {
   g: new THREE.Group(), body: new THREE.Group(), wheels: [], x: 0, steer: 0,
   vx: 0, prevVx: 0, slip: 0, gear: 0, rpm: 0,
+  load: 0, shiftKick: 0, yaw: 0, yawVel: 0,
   roll: 0, pitch: 0, susPhase: 0, prevSpeed: 25
 };
 (function buildPlayer() {
@@ -865,24 +866,43 @@ const player = {
 
   /* ---- MAIN BODY: low, wide supercar silhouette ----
      Lower nose, longer hood, fast-raked screen, muscular haunch, cut-off kamm tail. */
+  /* ---- MAIN BODY: mid-engine supercar profile ----
+     Many small steps instead of a few long straights, so the bevel generates a
+     continuously curving surface: a knife nose, a dipped hood scoop, a fast
+     windscreen rake, a peaked roof, then a tapered rear deck to a kamm tail. */
   const shell = extrudeCar([
-    [-2.14, 0.14],                       // splitter lip
-    [-2.14, 0.44], [-1.98, 0.56],        // low nose
-    [-1.5, 0.62], [-0.85, 0.66],         // hood, gently rising
-    [-0.35, 0.68],                       // cowl
-    [0.95, 0.62], [1.62, 0.58],          // shoulder line into haunch
-    [2.02, 0.5], [2.1, 0.4],             // kamm tail cut
-    [2.1, 0.16], [1.5, 0.26], [-1.5, 0.26]   // underside
-  ], 1.9, paint);
+    [-2.20, 0.11],                                   // splitter lip, very low
+    [-2.20, 0.34], [-2.12, 0.44], [-1.96, 0.52],     // knife nose rising
+    [-1.72, 0.56], [-1.44, 0.575],                   // front clam
+    [-1.16, 0.565], [-0.92, 0.545],                  // hood dip (scoop valley)
+    [-0.70, 0.565], [-0.50, 0.60], [-0.34, 0.645],   // cowl kick-up
+    [0.62, 0.635],                                   // door shoulder
+    [1.06, 0.615], [1.42, 0.585],                    // haunch crest
+    [1.74, 0.545], [1.98, 0.495],                    // rear deck taper
+    [2.12, 0.44], [2.16, 0.37],                      // kamm cut
+    [2.16, 0.14], [1.6, 0.24], [-1.6, 0.24]          // flat floor
+  ], 1.96, paint, 0.075, 0.055);
   car.add(shell);
-  /* greenhouse: separate tapered glass canopy (narrower = "tumblehome") */
+  /* greenhouse: tapered glass with a curved screen rake (tumblehome) */
   const canopy = extrudeCar([
-    [-0.42, 0.68], [-0.12, 1.02], [0.62, 1.04], [1.15, 0.63]
-  ], 1.36, glassMat, 0.05, 0.04);
+    [-0.36, 0.66], [-0.22, 0.82], [-0.06, 0.96],
+    [0.10, 1.045], [0.34, 1.075], [0.62, 1.06], [0.90, 0.94], [1.14, 0.70]
+  ], 1.42, glassMat, 0.045, 0.035);
   car.add(canopy);
-  /* roof spine in body colour so the glass doesn't look like a bubble */
-  const roof = extrudeCar([[0.0, 1.0], [0.15, 1.06], [0.66, 1.05], [0.72, 0.99]], 1.2, paint, 0.04, 0.03);
+  /* body-colour roof spine + A-pillars frame the glass */
+  const roof = extrudeCar([
+    [0.10, 1.03], [0.30, 1.075], [0.62, 1.062], [0.80, 1.00]
+  ], 1.26, paint, 0.04, 0.03);
   car.add(roof);
+  /* flying buttresses sweeping from the roof to the rear haunches — the
+     signature line of a modern mid-engine car */
+  [[-1], [1]].forEach(([s]) => {
+    const butt = extrudeCar([
+      [0.72, 1.03], [1.06, 0.90], [1.42, 0.74], [1.62, 0.62], [1.30, 0.66], [0.92, 0.86]
+    ], 0.2, paint, 0.03, 0.025);
+    butt.position.x = s * 0.52;
+    car.add(butt);
+  });
   /* front splitter + rear diffuser (carbon) */
   const splitter = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.06, 0.42), carbonMat);
   splitter.position.set(0, 0.13, -2.0); car.add(splitter);
@@ -913,36 +933,63 @@ const player = {
       tip.position.set(s * ex, 0.28, 2.12); car.add(tip);
     });
   });
-  /* hood vents + intake slats (dark inserts read as depth) */
-  [[-0.4], [0.4]].forEach(([vx]) => {
-    const vent = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.5), carbonMat);
-    vent.position.set(vx, 0.655, -1.15); car.add(vent);
+  /* hood vents sunk into the scoop valley */
+  [[-0.42], [0.42]].forEach(([vx]) => {
+    const vent = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.025, 0.44), carbonMat);
+    vent.position.set(vx, 0.552, -1.04); car.add(vent);
   });
-  const grille = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.16, 0.06), carbonMat);
-  grille.position.set(0, 0.32, -2.13); car.add(grille);
-  /* swan-neck rear wing */
-  const wing = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.055, 0.4), carbonMat);
-  wing.position.set(0, 1.0, 1.88); wing.rotation.x = -0.08; wing.castShadow = true; car.add(wing);
+  /* front intake trio: centre mouth + corner ducts */
+  const grille = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.15, 0.06), carbonMat);
+  grille.position.set(0, 0.26, -2.19); car.add(grille);
+  [[-1], [1]].forEach(([s]) => {
+    const duct = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.19, 0.07), carbonMat);
+    duct.position.set(s * 0.66, 0.29, -2.16); duct.rotation.z = s * 0.22; car.add(duct);
+    /* side air intake feeding the mid-mounted engine */
+    const intake = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.62), carbonMat);
+    intake.position.set(s * 0.96, 0.5, 0.86); car.add(intake);
+    /* engine-bay louvres on the rear deck */
+    for (let k = 0; k < 3; k++) {
+      const lv = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.02, 0.05), carbonMat);
+      lv.position.set(s * 0.34, 0.585 - k * 0.012, 1.24 + k * 0.13);
+      car.add(lv);
+    }
+  });
+  /* rear wing — sits just above the deck and is properly strutted to it */
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(1.74, 0.05, 0.36), carbonMat);
+  wing.position.set(0, 0.80, 1.92); wing.rotation.x = -0.1; wing.castShadow = true; car.add(wing);
   [[-0.66], [0.66]].forEach(([sx]) => {
-    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.14), carbonMat);
-    strut.position.set(sx, 0.84, 1.93); strut.rotation.x = 0.18; car.add(strut);
+    /* struts reach from the deck surface (~0.5) up to the wing (~0.80) */
+    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.34, 0.1), carbonMat);
+    strut.position.set(sx, 0.645, 1.95); car.add(strut);
+  });
+  /* endplates tie the wing visually to the body */
+  [[-0.87], [0.87]].forEach(([sx]) => {
+    const ep = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.4), carbonMat);
+    ep.position.set(sx, 0.79, 1.92); car.add(ep);
   });
   /* headlights: slim angled LED bars + inner projector */
   player.headMat = new THREE.MeshStandardMaterial({ color: 0xe8f2ff, emissive: 0xffffff, emissiveIntensity: 0.5 });
   [[-1], [1]].forEach(([s]) => {
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.075, 0.1), player.headMat);
-    bar.position.set(s * 0.6, 0.47, -2.03); bar.rotation.z = s * 0.12; car.add(bar);
-    const proj = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), player.headMat);
-    proj.position.set(s * 0.42, 0.44, -2.06); car.add(proj);
+    /* slim swept LED blade sitting on the nose crest */
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.1), player.headMat);
+    bar.position.set(s * 0.58, 0.485, -2.0); bar.rotation.z = s * 0.16; car.add(bar);
+    const proj = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), player.headMat);
+    proj.position.set(s * 0.4, 0.455, -2.05); car.add(proj);
+    /* L-shaped daytime-running-light flick down the bumper corner */
+    const drl = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.06), player.headMat);
+    drl.position.set(s * 0.8, 0.41, -2.06); car.add(drl);
   });
   /* full-width taillight bar (modern supercar signature) */
   player.tailMat = new THREE.MeshStandardMaterial({ color: 0x400606, emissive: 0xff1a10, emissiveIntensity: 1.4 });
-  const tailBar = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.085, 0.05), player.tailMat);
-  tailBar.position.set(0, 0.47, 2.1); car.add(tailBar);
+  const tailBar = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.075, 0.05), player.tailMat);
+  tailBar.position.set(0, 0.415, 2.17); car.add(tailBar);
   [[-1], [1]].forEach(([s]) => {
-    const pod = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.13, 0.06), player.tailMat);
-    pod.position.set(s * 0.62, 0.47, 2.09); car.add(pod);
+    const pod = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.06), player.tailMat);
+    pod.position.set(s * 0.64, 0.415, 2.16); car.add(pod);
   });
+  /* gurney lip on the trailing edge of the deck */
+  const lip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.035, 0.07), carbonMat);
+  lip.position.set(0, 0.475, 2.09); car.add(lip);
   /* light glows */
   player.headGlowMat = makeGlowMat(0xfff2cc, 0.2);
   [[-0.58], [0.58]].forEach(([sx]) => {
@@ -1539,6 +1586,7 @@ function repairPlayer() {
   player.body.rotation.set(0, 0, 0);
   player.body.position.set(0, 0, 0);
   player.vx = 0; player.prevVx = 0; player.slip = 0; player.gear = 0; player.rpm = 0;
+  player.load = 0; player.shiftKick = 0; player.yaw = 0; player.yawVel = 0;
   player.pitch = 0; player.roll = 0; player.prevSpeed = playSpeed;
   player.vy = 0; player.rvx = 0; player.rvy = 0; player.rvz = 0;
 }
@@ -1817,7 +1865,7 @@ function updateAtmosphere(rdt) {
   });
   trafficGlowMat.opacity = 0.22 + night * 0.5;
   /* glows fade right down in the menu — the camera is much closer there */
-  const glowScale = state === 'menu' ? 0.3 : 1;
+  const glowScale = state === 'menu' ? 0.16 : 1;
   player.headGlowMat.opacity = (0.12 + night * 0.7) * glowScale;
   player.tailGlowMat.opacity = (0.14 + night * 0.4) * glowScale;
   sunGlowMat.color.copy(SKY.sun);
@@ -2040,22 +2088,67 @@ function updatePlayer(dt, rdt) {
     }
     nitroK = damp(nitroK, nitroActive ? 1 : 0, 6, dt);
 
-    /* ---- longitudinal vehicle physics: engine torque vs drag & rolling resistance ---- */
+    /* ===================== VEHICLE DYNAMICS =====================
+       A proper (if arcade-tuned) model: a per-gear torque curve drives the rear
+       wheels, aero drag and downforce scale with v², weight transfers fore/aft
+       under acceleration and braking, and the tyres share ONE friction budget
+       between accelerating/braking and cornering (the friction circle). Spend it
+       all on stopping and you can't turn; spend it all on turning and you can't
+       put the power down. That trade-off is what makes a racer feel real.       */
     const vMax = 76 + Math.min(distance * 0.0008, 8);          // ~275-300 km/h terminal
-    const engineForce = (1 - Math.pow(playSpeed / (vMax + nitroK * 32), 2.1)) * 22;
-    const drag = 0.0062 * playSpeed * playSpeed;                // quadratic aero drag
-    const roll = 0.42 * playSpeed;                              // rolling resistance
-    const brakeF = braking ? 30 + playSpeed * 0.42 : 0;
-    const accelF = Math.max(0, engineForce) * (1 + nitroK * 1.5) * 1.35 - drag * 0.16 - roll * 0.05 - brakeF;
-    playSpeed = clamp(playSpeed + accelF * dt, 6, vMax + nitroK * 34);
-    /* gear simulation drives the engine note */
-    const gearSpan = (vMax + 34) / 6;
-    const gear = Math.min(5, Math.floor(playSpeed / gearSpan));
+
+    /* --- gearbox: pick the gear, derive engine RPM from wheel speed --- */
+    /* span the 6 gears across the NA top speed, so 6th is genuinely reached at
+       full chat (nitro then over-revs the top gear, exactly like real life) */
+    const gearSpan = vMax / 6;
+    let gear = Math.min(5, Math.floor(playSpeed / gearSpan));
+    /* hysteresis stops the box hunting when you sit right on a shift point */
+    if (gear === player.gear - 1 && playSpeed > (gear + 1) * gearSpan - 1.4) gear = player.gear;
     if (gear !== player.gear) {
-      if (gear > player.gear && state === 'play') { audio.gearShift(); shakeAmp = Math.max(shakeAmp, 0.07); }
+      if (gear > player.gear && state === 'play') {
+        audio.gearShift();
+        shakeAmp = Math.max(shakeAmp, 0.07);
+        player.shiftKick = 0.12;        // brief torque interruption on the upshift
+      }
       player.gear = gear;
     }
-    player.rpm = (playSpeed - gear * gearSpan) / gearSpan;      // 0..1 within gear
+    player.rpm = clamp((playSpeed - gear * gearSpan) / gearSpan, 0, 1);
+    if (player.shiftKick > 0) player.shiftKick -= dt;
+
+    /* --- torque curve: weak off idle, peak in the mid-range, falls off at redline.
+           Lower gears multiply torque, exactly like real gearing. --- */
+    const r = player.rpm;
+    const torqueCurve = 0.55 + 1.15 * Math.sin(Math.min(r, 0.92) * Math.PI * 0.86);
+    const gearRatio = 2.5 - gear * 0.33;                       // 2.50 → 0.85
+    const throttle = player.shiftKick > 0 ? 0.15 : 1;
+    /* Force scale is balanced so that in top gear the drivetrain and the
+       resistances very nearly cancel right at vMax — the car genuinely runs out
+       of breath instead of being cut off by a clamp, and low gears pull hard. */
+    let driveF = torqueCurve * gearRatio * 6.5 * throttle * (1 + nitroK * 1.4);
+
+    /* --- aero: drag holds top speed, downforce buys grip at speed --- */
+    const v2 = playSpeed * playSpeed;
+    const drag = 0.0007 * v2;                                  // ~4 at Vmax
+    const rollRes = 0.04 * playSpeed;                          // ~3 at Vmax
+    const downforce = 0.00042 * v2;                            // 0 → ~2.6 at Vmax
+    const brakeF = braking ? 34 + playSpeed * 0.5 : 0;
+
+    /* --- weight transfer: pitch load shifts to the front braking, rear on power.
+           +1 = fully rear-loaded (traction), -1 = fully front-loaded (turn-in). --- */
+    const accelRequest = (driveF - drag - rollRes - brakeF) * 0.02;
+    player.load = damp(player.load, clamp(accelRequest, -1, 1), 6, dt);
+
+    /* --- FRICTION CIRCLE: one grip budget, shared --- */
+    const gripBudget = 20 + downforce * 3.4;                   // downforce adds grip
+    const latDemand = Math.abs(player.vx) * 1.5;
+    const longDemand = (braking ? brakeF : driveF) * 0.42;
+    const total = Math.hypot(latDemand, longDemand);
+    /* if combined demand exceeds the budget, BOTH lose authority proportionally */
+    const saturation = total > gripBudget ? gripBudget / total : 1;
+
+    driveF *= saturation;                                       // wheelspin
+    const accelF = driveF - drag - rollRes - brakeF * saturation;
+    playSpeed = clamp(playSpeed + accelF * dt, 6, vMax + nitroK * 34);
     if (playSpeed > topSpeed) topSpeed = playSpeed;
     score += playSpeed * dt * 1.25 * (1 + nitroK * 0.5) * (overdrive ? 2 : 1);
     /* brake feedback */
@@ -2075,12 +2168,22 @@ function updatePlayer(dt, rdt) {
     const steerIn = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     /* steering rack slows at speed (like real rack + tyre load) */
     player.steer = damp(player.steer, steerIn, 6.5 + 5 / (1 + playSpeed * 0.03), dt);
-    /* ---- lateral tyre model: steer force vs grip, with slip when overdriven ---- */
-    const desiredVx = player.steer * (9.4 + playSpeed * 0.075);
-    const grip = 26 * (braking ? 1.35 : 1);                     // braking loads the front tyres
+    /* ---- LATERAL: slip-angle tyre response inside the shared friction budget ----
+       Front grip rises when braking loads the nose (turn-in bite) and falls when
+       power shifts weight rearward (understeer on the throttle) — real behaviour
+       drivers feel. Cornering force also fades once the tyre is past peak slip. */
+    const frontLoad = 1 - player.load * 0.42;                   // <1 on power, >1 braking
+    const steerAuthority = (9.6 + playSpeed * 0.072) * frontLoad;
+    const desiredVx = player.steer * steerAuthority;
+    /* tyres respond fastest near zero slip and get lazy as they saturate */
+    const latGrip = (24 + downforce * 2.6) * saturation / (1 + Math.abs(player.vx) * 0.14);
+    player.vx = damp(player.vx, desiredVx, latGrip, dt);
     const slipLimit = 12.5;
-    player.vx = damp(player.vx, desiredVx, grip / (1 + Math.abs(player.vx) * 0.16), dt);
     player.slip = clamp((Math.abs(player.vx) - slipLimit * 0.62) / slipLimit, 0, 1);
+    /* --- yaw inertia: the car rotates into the slide and settles, it doesn't snap --- */
+    const yawTarget = -player.vx * 0.019 - player.steer * 0.045 - player.slip * Math.sign(player.vx) * 0.05;
+    player.yawVel = damp(player.yawVel, (yawTarget - player.yaw) * 7.5, 9, dt);
+    player.yaw += player.yawVel * dt;
     if (player.slip > 0.35 && skidCd <= 0) {                    // tyres howl + smoke when sliding
       skidCd = 0.16;
       audio.skid();
@@ -2117,13 +2220,13 @@ function updatePlayer(dt, rdt) {
     if (scrapeCd > 0) scrapeCd -= dt;
     player.g.position.x = player.x;
     player.g.position.z = 0;
-    /* yaw = heading into the slide (counter-steer look) */
-    player.g.rotation.y = damp(player.g.rotation.y, -player.vx * 0.021 - player.steer * 0.05, 9, dt);
+    player.g.rotation.y = player.yaw;      // driven by the yaw-inertia model above
     /* suspension + weight transfer: chassis moves over planted wheels */
-    const accel = (playSpeed - player.prevSpeed) / Math.max(dt, 0.0001);
     player.prevSpeed = playSpeed;
-    const pitchT = clamp(accel * 0.006, -0.06, 0.05) - (braking ? 0.045 : 0) + nitroK * 0.03;
-    player.pitch = damp(player.pitch, pitchT, 6, dt);
+    /* Pitch is driven by the physics load term, so the nose visibly dives under
+       braking and the tail squats on power — the same value the tyres use. */
+    const pitchT = -player.load * 0.055 + nitroK * 0.022;
+    player.pitch = damp(player.pitch, pitchT, 7, dt);
     /* body roll follows real lateral acceleration, not just stick input */
     const latAccel = (player.vx - player.prevVx) / Math.max(dt, 0.0001);
     player.prevVx = player.vx;
