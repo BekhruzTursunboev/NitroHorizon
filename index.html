@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Nitro Horizon — 3D Traffic Racer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+<meta name="description" content="Nitro Horizon — a slick 3D endless traffic racer. Weave through highway traffic, chain near-misses, hit the nitro and own the night. Built with Three.js, zero downloads."/>
+<meta property="og:title" content="Nitro Horizon — 3D Traffic Racer"/>
+<meta property="og:description" content="Outrun the traffic. Own the night. A free 3D HTML5 racing game."/>
+<meta name="theme-color" content="#05070f"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta property="og:type" content="website"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.9em'%20font-size='90'%3E%F0%9F%8F%8E%EF%B8%8F%3C/text%3E%3C/svg%3E"/>
+<link rel="manifest" href="manifest.webmanifest"/>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+<div id="vignette"></div>
+<div id="fader"></div>
+<div id="pops"></div>
+
+<!-- ===== HUD ===== -->
+<main id="hud" class="ui hidden">
+  <div class="hudTL">
+    <div class="hudLabel">SCORE</div>
+    <div id="score" class="hudBig">0</div>
+    <div id="best" class="hudSub">BEST 0</div>
+  </div>
+  <div class="hudTR">
+    <div class="hudLabel">COINS</div>
+    <div id="coins" class="hudBig gold"><span class="coinDot"></span>0</div>
+    <div id="combo" class="hudSub cyan"></div>
+  </div>
+  <div class="hudBC">
+    <div id="nitroWrap"><div id="nitroFill"></div><span class="nitroTag">N₂O</span></div>
+    <div class="speedRow">
+      <div id="gear" class="gear">1</div>
+      <div id="speed" class="speedo">0 <em>km/h</em></div>
+    </div>
+  </div>
+  <div class="hudBL"><div id="fps">60 FPS</div></div>
+  <button id="pauseBtn" aria-label="Pause">❚❚</button>
+</main>
+
+<!-- ===== MENU (arcade attract screen) ===== -->
+<section id="menu" class="ui">
+  <div class="frame"><i class="br tl"></i><i class="br tr"></i><i class="br bl"></i><i class="br br2"></i></div>
+  <div class="scan"></div>
+
+  <div class="mTop">
+    <div class="mTag">ARCADE · ENDLESS · HIGHWAY</div>
+    <div class="bestChip" id="menuBest"></div>
+  </div>
+
+  <div class="mMain">
+    <div class="lock">
+      <div class="lockRule"></div>
+      <h1 class="wordmark">
+        <span class="w1">NITRO</span>
+        <span class="w2">HORIZON</span>
+      </h1>
+      <p class="sub">Outrun the traffic.<b>Own the night.</b></p>
+    </div>
+
+    <button id="btnStart" class="startBtn">
+      <span class="sbGlow"></span>
+      <span class="sbText">START ENGINE</span>
+      <span class="sbHint">↵</span>
+    </button>
+
+    <div class="opts">
+      <div class="opt"><label>QUALITY</label>
+        <div class="seg" id="qualitySeg">
+          <button data-q="low">LOW</button><button data-q="med">MED</button><button data-q="high">HIGH</button>
+        </div>
+      </div>
+      <div class="opt"><label>SOUND</label>
+        <div class="seg" id="soundSeg">
+          <button data-s="1">ON</button><button data-s="0">OFF</button>
+        </div>
+      </div>
+      <div class="opt"><label>GHOST</label>
+        <div class="seg" id="ghostSeg">
+          <button data-g="1">ON</button><button data-g="0">OFF</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="keys" id="helpDesk">
+      <kbd>A</kbd><kbd>D</kbd><em>steer</em>
+      <kbd>SHIFT</kbd><em>nitro</em>
+      <kbd>S</kbd><em>brake</em>
+      <kbd>P</kbd><em>pause</em>
+    </div>
+    <div class="keys hidden" id="helpTouch">
+      <kbd>◀ ▶</kbd><em>hold to steer</em><kbd>N₂O</kbd><em>boost</em><kbd>BRAKE</kbd><em>slow</em>
+    </div>
+  </div>
+
+  <div class="ticker"><div class="tickRun">
+    <span>CHAIN NEAR-MISSES FOR <b>OVERDRIVE ×2</b></span><span>HOLD A SLIDE TO BANK <b>DRIFT POINTS</b></span><span>GRAB <b>N₂O CANS</b> TO REFILL BOOST</span><span>SIDE-SWIPES ARE SURVIVABLE — <b>HEAD-ONS ARE NOT</b></span><span>BEAT YOUR OWN <b>GHOST</b></span><span>FULL <b>DAY / NIGHT</b> CYCLE</span>
+    <span>CHAIN NEAR-MISSES FOR <b>OVERDRIVE ×2</b></span><span>HOLD A SLIDE TO BANK <b>DRIFT POINTS</b></span><span>GRAB <b>N₂O CANS</b> TO REFILL BOOST</span><span>SIDE-SWIPES ARE SURVIVABLE — <b>HEAD-ONS ARE NOT</b></span><span>BEAT YOUR OWN <b>GHOST</b></span><span>FULL <b>DAY / NIGHT</b> CYCLE</span>
+  </div></div>
+</section>
+
+<!-- ===== GAME OVER ===== -->
+<section id="gameover" class="ui panelWrap hidden">
+  <div class="panel">
+    <h2 class="wrecked">WRECKED</h2>
+    <div id="newBest" class="newBest hidden">★ NEW BEST ★</div>
+    <div class="stats">
+      <div class="stat"><b id="finalScore">0</b><span>SCORE</span></div>
+      <div class="stat"><b id="finalBest">0</b><span>BEST</span></div>
+      <div class="stat gold"><b id="finalCoins">0</b><span>COINS</span></div>
+      <div class="stat"><b id="finalDist">0</b><span>DISTANCE</span></div>
+      <div class="stat cyanStat"><b id="finalDrift">0</b><span>DRIFT PTS</span></div>
+      <div class="stat"><b id="finalTop">0</b><span>TOP SPEED</span></div>
+    </div>
+    <div id="replayNote" class="replayNote hidden">👻 Your best run is now a ghost — race it!</div>
+    <button id="btnRetry" class="btn primary">DRIVE&nbsp;AGAIN</button>
+    <button id="btnMenu" class="btn">MAIN&nbsp;MENU</button>
+  </div>
+</section>
+
+<!-- ===== PAUSED ===== -->
+<section id="paused" class="ui panelWrap hidden">
+  <div class="panel">
+    <h2 class="pausedTitle">PAUSED</h2>
+    <button id="btnResume" class="btn primary">RESUME</button>
+    <button id="btnRestart" class="btn">RESTART</button>
+    <button id="btnMenu2" class="btn">MAIN&nbsp;MENU</button>
+  </div>
+</section>
+
+<!-- ===== TOUCH CONTROLS ===== -->
+<div id="touchUI" class="hidden">
+  <div id="touchL" class="steerZone"><span>◀</span></div>
+  <div id="touchR" class="steerZone"><span>▶</span></div>
+  <button id="brakeBtn">BRAKE</button>
+  <button id="nitroBtn">N₂O</button>
+</div>
+
+<!-- ===== LOADING ===== -->
+<div id="loading"><div class="loadTitle">NITRO HORIZON</div><div class="loadBar"><span></span></div></div>
+
+<pre id="fatal"></pre>
+
+<!-- ============================================================
+  PORTAL SDKs — uncomment ONE line for the portal you build for:
+
+  CrazyGames:
+  <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
+
+  Yandex Games (path is served by Yandex itself):
+  <script src="/sdk.js"></script>
+
+  The game auto-detects either SDK at runtime (see Portal in js/main.js)
+  and calls init / loading-ready / gameplayStart / gameplayStop for you.
+============================================================= -->
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./lib/three.module.min.js",
+    "three/addons/": "./lib/jsm/"
+  }
+}
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
