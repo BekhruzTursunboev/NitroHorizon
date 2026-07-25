@@ -53,7 +53,7 @@ const dom = {
   finalCoins: $('finalCoins'), finalDist: $('finalDist'), btnRetry: $('btnRetry'), btnMenu: $('btnMenu'),
   finalDrift: $('finalDrift'), finalTop: $('finalTop'),
   paused: $('paused'), btnResume: $('btnResume'), btnRestart: $('btnRestart'), btnMenu2: $('btnMenu2'),
-  ghostSeg: $('ghostSeg'), replayNote: $('replayNote'),
+  ghostSeg: $('ghostSeg'), replayNote: $('replayNote'), brightSeg: $('brightSeg'),
   touchUI: $('touchUI'), touchL: $('touchL'), touchR: $('touchR'), nitroBtn: $('nitroBtn'),
   brakeBtn: $('brakeBtn'), fps: $('fps'), gear: $('gear'), pauseBtn: $('pauseBtn')
 };
@@ -120,9 +120,9 @@ const SpeedBlurShader = {
     tDiffuse: { value: null },
     uStrength: { value: 0 },      // 0 = off
     uCenter: { value: new THREE.Vector2(0.5, 0.5) },
-    uVignette: { value: 0.3 },
-    uSat: { value: 1.22 },        // AgX desaturates by design — put the punch back
-    uContrast: { value: 1.06 }
+    uVignette: { value: 0.42 },   // stronger corner falloff = far easier on the eyes
+    uSat: { value: 1.2 },         // AgX desaturates by design — put the punch back
+    uContrast: { value: 1.05 }
   },
   vertexShader: `
     varying vec2 vUv;
@@ -174,15 +174,18 @@ const PLAYER_HL = 2.08, PLAYER_HW = 0.92;
 const CYCLE = 210; // seconds for a full day
 /* Palette reworked for AgX: deeper, more saturated skies with warmer low-sun
    light and cooler shadow fill — the natural warm/cool split real daylight has. */
+/* Light budget deliberately restrained: the old daytime values (sun 4.1 + hemi 1.1
+   over pale sand) turned the whole desert into a reflector and glared. Midday is
+   now a hazier, softer, more filmic look rather than a white-out. */
 const RAW_STOPS = [
-  { t: 0.00, top: 0x1d3a7a, hor: 0xff8a42, sun: 0xffb066, sunI: 2.1, hemi: 0x7fa4ff, gnd: 0x8a6038, hemiI: 0.6,  fog: 0xe08a4e, night: 0.12, exp: 1.04 },
-  { t: 0.16, top: 0x1f68d8, hor: 0xa8d6f2, sun: 0xfff0d0, sunI: 3.6, hemi: 0xa8ccff, gnd: 0xa87c50, hemiI: 1.0,  fog: 0xbcdcf2, night: 0.0,  exp: 1.0  },
-  { t: 0.34, top: 0x1a63e0, hor: 0xc8e6fb, sun: 0xfff8ee, sunI: 4.1, hemi: 0xbcdcff, gnd: 0xb08654, hemiI: 1.1,  fog: 0xd2e8fb, night: 0.0,  exp: 0.98 },
-  { t: 0.50, top: 0x4a3596, hor: 0xff7a30, sun: 0xff9a48, sunI: 2.7, hemi: 0xb894e0, gnd: 0x7a5236, hemiI: 0.72, fog: 0xf08a44, night: 0.06, exp: 1.05 },
-  { t: 0.60, top: 0x141a4e, hor: 0xd8404e, sun: 0xff6e3c, sunI: 1.2, hemi: 0x4a5ca8, gnd: 0x42302c, hemiI: 0.46, fog: 0x7e4058, night: 0.5,  exp: 1.0  },
-  { t: 0.72, top: 0x03050f, hor: 0x0e1636, sun: 0xa8c4ff, sunI: 0.42, hemi: 0x1e2e60, gnd: 0x0e0e18, hemiI: 0.3, fog: 0x0a1024, night: 1.0,  exp: 0.9  },
-  { t: 0.88, top: 0x04081c, hor: 0x121c42, sun: 0xa8c4ff, sunI: 0.42, hemi: 0x22326a, gnd: 0x10101e, hemiI: 0.32, fog: 0x0e1630, night: 1.0,  exp: 0.9  },
-  { t: 0.97, top: 0x15265a, hor: 0x9c4a62, sun: 0xffab72, sunI: 1.1, hemi: 0x5a6cb0, gnd: 0x42302c, hemiI: 0.46, fog: 0x6e4460, night: 0.5,  exp: 0.98 }
+  { t: 0.00, top: 0x1d3a7a, hor: 0xe0763a, sun: 0xf0a05e, sunI: 1.5, hemi: 0x7089c8, gnd: 0x6a4a2c, hemiI: 0.42, fog: 0xc4783e, night: 0.12, exp: 0.94 },
+  { t: 0.16, top: 0x1f5fb8, hor: 0x8ab4d0, sun: 0xf6e2c0, sunI: 2.2, hemi: 0x8aa8d0, gnd: 0x7a5c3c, hemiI: 0.62, fog: 0x9ab8cc, night: 0.0,  exp: 0.9  },
+  { t: 0.34, top: 0x1a56c0, hor: 0xa4c4dc, sun: 0xf8ecd8, sunI: 2.5, hemi: 0x94b4dc, gnd: 0x806040, hemiI: 0.68, fog: 0xaec8da, night: 0.0,  exp: 0.88 },
+  { t: 0.50, top: 0x453092, hor: 0xe06828, sun: 0xf08a40, sunI: 1.9, hemi: 0x9c7ec4, gnd: 0x5e3e28, hemiI: 0.5,  fog: 0xd07636, night: 0.06, exp: 0.94 },
+  { t: 0.60, top: 0x141a4e, hor: 0xb83644, sun: 0xe05e34, sunI: 0.95, hemi: 0x42509a, gnd: 0x362824, hemiI: 0.36, fog: 0x6a3650, night: 0.5,  exp: 0.94 },
+  { t: 0.72, top: 0x03050f, hor: 0x0c1230, sun: 0x90aaee, sunI: 0.34, hemi: 0x18265a, gnd: 0x0a0a14, hemiI: 0.24, fog: 0x080d1e, night: 1.0,  exp: 0.9  },
+  { t: 0.88, top: 0x04081c, hor: 0x0f183a, sun: 0x90aaee, sunI: 0.34, hemi: 0x1c2a60, gnd: 0x0c0c18, hemiI: 0.26, fog: 0x0b1228, night: 1.0,  exp: 0.9  },
+  { t: 0.97, top: 0x15265a, hor: 0x854056, sun: 0xe89464, sunI: 0.9, hemi: 0x4e5ea0, gnd: 0x362824, hemiI: 0.36, fog: 0x5c3a52, night: 0.5,  exp: 0.92 }
 ];
 const STOPS = RAW_STOPS.map(s => ({
   t: s.t, sunI: s.sunI, hemiI: s.hemiI, night: s.night, exp: s.exp,
@@ -268,8 +271,17 @@ const skyMat = new THREE.ShaderMaterial({
       float h = clamp(d.y, 0.0, 1.0);
       vec3 col = mix(uHor, uTop, pow(h, 0.62));
       col = mix(col, uHor * 0.82, clamp(-d.y * 4.0, 0.0, 1.0));
+      /* Rayleigh-ish horizon brightening: real skies are palest just above the
+         horizon because you look through more atmosphere. */
+      float lowBand = exp(-max(d.y, 0.0) * 5.5);
+      col = mix(col, uHor * 1.06, lowBand * 0.42);
       float s = max(dot(d, normalize(uSunDir)), 0.0);
-      col += uSunCol * (pow(s, 1200.0) * 1.7 + pow(s, 40.0) * 0.35 + pow(s, 5.0) * 0.14);
+      /* softer disc + wider forward-scatter halo, and a subtle warm band along
+         the whole horizon on the sun's side (aerial perspective) */
+      col += uSunCol * (pow(s, 1400.0) * 1.1 + pow(s, 60.0) * 0.2 + pow(s, 6.0) * 0.1);
+      col += uSunCol * pow(s, 2.0) * lowBand * 0.14;
+      /* gentle vertical banding breaks up the flat gradient (cloud haze strata) */
+      col *= 1.0 + sin(d.y * 22.0 + uTime * 0.05) * 0.012;
       if (uNight > 0.02 && d.y > 0.03) {
         vec2 sp = d.xz / (d.y + 0.18) * 36.0;
         vec2 cell = floor(sp); vec2 f = fract(sp) - 0.5;
@@ -330,16 +342,42 @@ const roadTex = makeTex(512, 1024, (g, w, h) => {
   });
 }, 1, 50);
 /* sand */
-const sandTex = makeTex(256, 256, (g, w, h) => {
-  g.fillStyle = '#cfa76c'; g.fillRect(0, 0, w, h);
-  for (let i = 0; i < 2600; i++) {
-    const c = pick(['#c69d62', '#d8b078', '#c2955a', '#dcb680']);
-    g.fillStyle = c; g.globalAlpha = 0.25 + Math.random() * 0.4;
-    const r = 1 + Math.random() * 5;
+/* Desert floor: deeper ochre base with mottled patches, scattered scrub and
+   wind ripples. The old flat pale #cfa76c acted like a giant bounce card and
+   was the main source of glare — this is darker and far more interesting. */
+const sandTex = makeTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#8f6c40'; g.fillRect(0, 0, w, h);
+  /* broad tonal patches so the ground isn't one uniform sheet */
+  for (let i = 0; i < 60; i++) {
+    g.fillStyle = pick(['#98744a', '#846138', '#a07d50', '#7a5a34']);
+    g.globalAlpha = 0.35;
+    const r = 30 + Math.random() * 90;
     g.beginPath(); g.arc(Math.random() * w, Math.random() * h, r, 0, 7); g.fill();
   }
+  /* wind ripples */
+  g.globalAlpha = 0.14;
+  g.strokeStyle = '#5e4426'; g.lineWidth = 2;
+  for (let i = 0; i < 90; i++) {
+    const y = Math.random() * h, amp = 3 + Math.random() * 7;
+    g.beginPath();
+    for (let x = 0; x <= w; x += 16) g.lineTo(x, y + Math.sin(x * 0.05 + i) * amp);
+    g.stroke();
+  }
+  /* grain + sparse scrub */
+  for (let i = 0; i < 3400; i++) {
+    g.globalAlpha = 0.2 + Math.random() * 0.35;
+    g.fillStyle = pick(['#a17c4c', '#79582f', '#b08b58', '#6a4c28']);
+    const r = 1 + Math.random() * 4;
+    g.beginPath(); g.arc(Math.random() * w, Math.random() * h, r, 0, 7); g.fill();
+  }
+  for (let i = 0; i < 130; i++) {
+    g.globalAlpha = 0.5;
+    g.fillStyle = pick(['#5c6236', '#4a5230', '#6a7040']);
+    const x = Math.random() * w, y = Math.random() * h, s = 2 + Math.random() * 4;
+    g.beginPath(); g.arc(x, y, s, 0, 7); g.fill();
+  }
   g.globalAlpha = 1;
-}, 64, 64);
+}, 48, 48);
 /* guard rail: tile = 8 m */
 const railTex = makeTex(256, 64, (g, w, h) => {
   const grd = g.createLinearGradient(0, 0, 0, h);
@@ -446,7 +484,7 @@ const road = new THREE.Mesh(new THREE.PlaneGeometry(17, 1000), roadMat);
 road.rotation.x = -Math.PI / 2; road.position.set(0, 0, -420);
 road.receiveShadow = true; world.add(freeze(road));
 
-const sandMat = new THREE.MeshStandardMaterial({ map: sandTex, roughness: 1, metalness: 0, envMapIntensity: 0.18 });
+const sandMat = new THREE.MeshStandardMaterial({ map: sandTex, roughness: 1, metalness: 0, envMapIntensity: 0.08 });
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(1700, 1500), sandMat);
 ground.rotation.x = -Math.PI / 2; ground.position.set(0, -0.07, -420);
 world.add(freeze(ground));   // no shadow receive: it's outside the shadow frustum anyway
@@ -503,6 +541,28 @@ for (let i = 0; i < 9; i++) {
   sp.position.set(rand(-280, 280), rand(60, 140), -rand(180, 520));
   clouds.push(sp); world.add(sp);
 }
+
+/* ---- aerial-perspective haze curtains ----
+   Two soft gradient walls standing in front of the mountains and mid-ground.
+   Real distance reads as *desaturation and lifted contrast*, not just fog colour,
+   and these give the landscape genuine layered depth for two draw calls. */
+const hazeTex = makeTex(8, 128, (g, w, h) => {
+  const grd = g.createLinearGradient(0, h, 0, 0);
+  grd.addColorStop(0, 'rgba(255,255,255,0.85)');
+  grd.addColorStop(0.35, 'rgba(255,255,255,0.4)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, w, h);
+});
+const hazeMats = [];
+[[-360, 60, 0.5], [-250, 34, 0.34]].forEach(([z, hgt, op]) => {
+  const m = new THREE.MeshBasicMaterial({
+    map: hazeTex, transparent: true, opacity: op, depthWrite: false, fog: false
+  });
+  hazeMats.push(m);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1500, hgt), m);
+  mesh.position.set(0, hgt / 2 - 5, z);
+  world.add(freeze(mesh));
+});
 
 /* glow sprites (cheap bloom) */
 const glowTex = makeTex(128, 128, (g, w, h) => {
@@ -613,7 +673,7 @@ for (let i = 0; i < 3; i++) {
 }
 
 /* roadside scenery (pooled) */
-const duneMat = new THREE.MeshStandardMaterial({ color: 0xc49a5e, roughness: 1, flatShading: true, envMapIntensity: 0.1 });
+const duneMat = new THREE.MeshStandardMaterial({ color: 0x8a6740, roughness: 1, flatShading: true, envMapIntensity: 0.06 });
 const duneGeo = new THREE.SphereGeometry(1, 7, 5);
 const dunes = [];
 for (let i = 0; i < 20; i++) {
@@ -1449,6 +1509,9 @@ let nextTrafficDist = 40, nextCoinDist = 60, nextPickupDist = 300;
 let crashT = 0, timeScale = 1;
 let overdrive = false, overdriveT = 0, nextMilestone = 1000, topSpeed = 0;
 let fpsEMA = 60, dynScale = 1, lowFpsT = 0, highFpsT = 0, now0 = 0, shadowTick = 0;
+/* user-facing brightness: scales exposure so nobody has to squint */
+let brightness = parseFloat(store.get('nh.bright', '0.88'));
+if (!(brightness > 0.4 && brightness <= 1.2)) brightness = 0.88;
 let shakeAmp = 0, scrapeCd = 0, skidCd = 0, sideSwipeCd = 0;
 let driftT = 0, driftScore = 0, driftBank = 0;
 let camW = 0;                 // 0 = menu orbit, 1 = chase
@@ -1638,7 +1701,15 @@ function refreshSegs() {
   dom.qualitySeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.q === qualityName));
   dom.soundSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', (b.dataset.s === '1') === audio.enabled));
   if (dom.ghostSeg) dom.ghostSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', (b.dataset.g === '1') === Ghost.enabled));
+  if (dom.brightSeg) dom.brightSeg.querySelectorAll('button').forEach(b =>
+    b.classList.toggle('on', Math.abs(parseFloat(b.dataset.b) - brightness) < 0.02));
 }
+if (dom.brightSeg) dom.brightSeg.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  brightness = parseFloat(b.dataset.b);
+  store.set('nh.bright', brightness);
+  refreshSegs(); audio.click();
+});
 if (dom.ghostSeg) dom.ghostSeg.addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   Ghost.enabled = b.dataset.g === '1';
@@ -1710,15 +1781,15 @@ function updateAtmosphere(rdt) {
   sun.color.copy(SKY.sun); sun.intensity = SKY.sunI;
   /* rim/bounce follow the sky so they read as real light, not a fixed studio setup */
   rimLight.color.copy(SKY.hor);
-  rimLight.intensity = 0.35 + (1 - night) * 0.55 + night * 0.25;
+  rimLight.intensity = 0.22 + (1 - night) * 0.3 + night * 0.2;
   bounce.color.copy(SKY.gnd);
-  bounce.intensity = 0.1 + (1 - night) * 0.28;
+  bounce.intensity = 0.08 + (1 - night) * 0.16;
   const tx = player.x * 0.4;
   sun.target.position.set(tx, 0, -16);
   sun.position.set(tx + lightDirV.x * 100, lightDirV.y * 100, -16 + lightDirV.z * 100);
   scene.fog.color.copy(SKY.fog);
   scene.fog.far = Q.fogFar * (1 - night * 0.16);
-  renderer.toneMappingExposure = SKY.exp * 1.1;
+  renderer.toneMappingExposure = SKY.exp * 1.1 * brightness;
   /* refresh the shadow map a few times a second instead of every frame:
      the sun crawls, so this is visually identical and much cheaper */
   shadowTick += rdt;
@@ -1739,6 +1810,11 @@ function updateAtmosphere(rdt) {
   roadMat.emissiveIntensity = night * 0.07;
   lampGlowMat.opacity = night * 0.4;
   signMats.forEach(m => { m.emissiveIntensity = 0.12 + night * 0.8; });
+  /* haze curtains take the fog colour so they read as atmosphere, not geometry */
+  hazeMats.forEach((m, i) => {
+    m.color.copy(SKY.fog);
+    m.opacity = (i === 0 ? 0.52 : 0.32) * (1 - night * 0.45);
+  });
   trafficGlowMat.opacity = 0.22 + night * 0.5;
   /* glows fade right down in the menu — the camera is much closer there */
   const glowScale = state === 'menu' ? 0.3 : 1;
